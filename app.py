@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import hashlib
-import extra_streamlit_components as stx
 
 # 1. CONFIGURAÇÃO VISUAL
 st.set_page_config(
@@ -37,18 +36,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# GERENCIADOR DE COOKIES (PARA PERMANECER LOGADO)
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
-
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 # 2. BANCO DE DADOS
-DB_NAME = "imc_plus_v7.db"
+DB_NAME = "imc_plus_v8.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
@@ -122,16 +114,11 @@ def classificar_imc(imc):
     elif 35.0 <= imc < 40.0: return "Obesidade II"
     else: return "Obesidade III"
 
-# 3. VERIFICAÇÃO DE COOKIES E SESSÃO
-usuario_salvo_cookie = cookie_manager.get(cookie="imc_user_logged")
-
+# 3. CONTROLE DE SESSÃO
 if "usuario_logado" not in st.session_state:
-    if usuario_salvo_cookie:
-        st.session_state.usuario_logado = usuario_salvo_cookie
-    else:
-        st.session_state.usuario_logado = None
+    st.session_state.usuario_logado = None
 
-# TELA DE LOGIN / CADASTRO SE NÃO ESTIVER LOGADO
+# TELA DE LOGIN / CADASTRO
 if not st.session_state.usuario_logado:
     st.title("🔒 Acesso Restrito — IMC+")
     st.caption("Faça login para acessar suas métricas de saúde.")
@@ -154,8 +141,6 @@ if not st.session_state.usuario_logado:
                     if not res.empty:
                         user_real = res['nome'].iloc[0]
                         st.session_state.usuario_logado = user_real
-                        # Salva nos cookies por 30 dias
-                        cookie_manager.set("imc_user_logged", user_real, max_age=30*24*3600)
                         st.success("Login realizado com sucesso!")
                         st.rerun()
                     else:
@@ -174,7 +159,6 @@ if not st.session_state.usuario_logado:
             if btn_cadastrar:
                 nome_cad = novo_u.strip()
                 if nome_cad and nova_s:
-                    # VERIFICAÇÃO SE O NOME JÁ EXISTE NO BANCO (SEM DIFERENÇA DE MAIÚSCULAS/MINÚSCULAS)
                     with get_connection() as conn:
                         ja_existe = pd.read_sql_query("SELECT id FROM usuarios WHERE LOWER(nome) = LOWER(?)", conn, params=(nome_cad,))
                     
@@ -197,21 +181,9 @@ usuario_ativo = st.session_state.usuario_logado
 st.sidebar.title("⚡ IMC+ Performance")
 st.sidebar.success(f"Conectado como: **{usuario_ativo}**")
 
-# BOTAO LOGOUT QUE LIMPA COOKIES
 if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
     st.session_state.usuario_logado = None
-    cookie_manager.delete("imc_user_logged")
     st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📱 Acesse pelo Celular")
-
-# Cole a URL real do seu app publicado aqui
-url_app = "https://SEU-APP-AQUI.streamlit.app"
-if "SEU-APP-AQUI" not in url_app:
-    import urllib.parse
-    qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={urllib.parse.quote(url_app)}"
-    st.sidebar.image(qr_code_url, caption="Escaneie para abrir no celular")
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
@@ -351,7 +323,7 @@ elif menu == "💧 Água & Passos":
             st.rerun()
 
     with col2:
-        st.subheader("🚶 Passos Diários")
+        st.subheader("WALK Passos Diários")
         st.metric("Total Hoje", f"{passos_atual} / 10000 passos")
         st.progress(min(passos_atual / 10000, 1.0))
         
