@@ -4,8 +4,9 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import hashlib
+import extra_streamlit_components as stx
 
-# 1. CONFIGURAÇÃO VISUAL & TEMA HIGH-TECH
+# 1. CONFIGURAÇÃO VISUAL
 st.set_page_config(
     page_title="IMC+ | Performance & Health",
     page_icon="⚡",
@@ -16,15 +17,12 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp { background-color: #0b0f19; }
-    
     div[data-testid="stMetric"] {
         background: linear-gradient(135deg, #161e2e 0%, #111827 100%);
         border: 1px solid #1f2937;
         border-radius: 12px;
         padding: 18px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
-    
     .hero-card {
         background: linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%);
         border: 1px solid #312e81;
@@ -33,34 +31,24 @@ st.markdown("""
         border-radius: 14px;
         margin-bottom: 25px;
     }
-    
-    .hero-title {
-        color: #f8fafc;
-        font-size: 26px;
-        font-weight: 800;
-        margin: 0;
-    }
-    
-    .hero-sub {
-        color: #94a3b8;
-        font-size: 14px;
-        margin-top: 5px;
-    }
-
-    div.stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s ease-in-out;
-    }
+    .hero-title { color: #f8fafc; font-size: 26px; font-weight: 800; margin: 0; }
+    .hero-sub { color: #94a3b8; font-size: 14px; margin-top: 5px; }
+    div.stButton > button { border-radius: 8px; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
-# FUNÇÃO PARA CRIPTOGRAFAR SENHA
+# GERENCIADOR DE COOKIES (PARA PERMANECER LOGADO)
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
+
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
-# 2. BANCO DE DADOS ROBUSTO
-DB_NAME = "imc_plus_v6.db"
+# 2. BANCO DE DADOS
+DB_NAME = "imc_plus_v7.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
@@ -134,14 +122,19 @@ def classificar_imc(imc):
     elif 35.0 <= imc < 40.0: return "Obesidade II"
     else: return "Obesidade III"
 
-# 3. CONTROLE DE SESSÃO & AUTENTICAÇÃO
+# 3. VERIFICAÇÃO DE COOKIES E SESSÃO
+usuario_salvo_cookie = cookie_manager.get(cookie="imc_user_logged")
+
 if "usuario_logado" not in st.session_state:
-    st.session_state.usuario_logado = None
+    if usuario_salvo_cookie:
+        st.session_state.usuario_logado = usuario_salvo_cookie
+    else:
+        st.session_state.usuario_logado = None
 
 # TELA DE LOGIN / CADASTRO SE NÃO ESTIVER LOGADO
 if not st.session_state.usuario_logado:
     st.title("🔒 Acesso Restrito — IMC+")
-    st.caption("Faça login para acessar o painel de saúde e métricas.")
+    st.caption("Faça login para acessar suas métricas de saúde.")
     
     tab_login, tab_cadastro = st.tabs(["🔑 Entrar", "📝 Criar Conta"])
     
@@ -152,13 +145,17 @@ if not st.session_state.usuario_logado:
             btn_entrar = st.form_submit_button("Entrar no Sistema", type="primary", use_container_width=True)
             
             if btn_entrar:
-                if usuario_input.strip() and senha_input:
+                nome_limpo = usuario_input.strip()
+                if nome_limpo and senha_input:
                     senha_hash = hash_senha(senha_input)
                     with get_connection() as conn:
-                        res = pd.read_sql_query("SELECT * FROM usuarios WHERE nome = ? AND senha = ?", 
-                                                conn, params=(usuario_input.strip(), senha_hash))
+                        res = pd.read_sql_query("SELECT * FROM usuarios WHERE LOWER(nome) = LOWER(?) AND senha = ?", 
+                                                conn, params=(nome_limpo, senha_hash))
                     if not res.empty:
-                        st.session_state.usuario_logado = usuario_input.strip()
+                        user_real = res['nome'].iloc[0]
+                        st.session_state.usuario_logado = user_real
+                        # Salva nos cookies por 30 dias
+                        cookie_manager.set("imc_user_logged", user_real, max_age=30*24*3600)
                         st.success("Login realizado com sucesso!")
                         st.rerun()
                     else:
@@ -175,16 +172,21 @@ if not st.session_state.usuario_logado:
             btn_cadastrar = st.form_submit_button("Criar Conta", type="primary", use_container_width=True)
             
             if btn_cadastrar:
-                if novo_u.strip() and nova_s:
-                    try:
+                nome_cad = novo_u.strip()
+                if nome_cad and nova_s:
+                    # VERIFICAÇÃO SE O NOME JÁ EXISTE NO BANCO (SEM DIFERENÇA DE MAIÚSCULAS/MINÚSCULAS)
+                    with get_connection() as conn:
+                        ja_existe = pd.read_sql_query("SELECT id FROM usuarios WHERE LOWER(nome) = LOWER(?)", conn, params=(nome_cad,))
+                    
+                    if not ja_existe.empty:
+                        st.error("⚠️ Este nome de usuário já está em uso! Escolha outro nome.")
+                    else:
                         senha_hash = hash_senha(nova_s)
                         with get_connection() as conn:
                             conn.cursor().execute("INSERT INTO usuarios (nome, senha, idade, altura) VALUES (?,?,?,?)", 
-                                                  (novo_u.strip(), senha_hash, idade_u, alt_u))
+                                                  (nome_cad, senha_hash, idade_u, alt_u))
                             conn.commit()
-                        st.success("Conta criada! Faça login na aba 'Entrar'.")
-                    except:
-                        st.error("Este nome de usuário já está em uso.")
+                        st.success("Conta criada! Vá até a aba 'Entrar' para acessar.")
                 else:
                     st.warning("Preencha todos os campos.")
     st.stop()
@@ -195,9 +197,21 @@ usuario_ativo = st.session_state.usuario_logado
 st.sidebar.title("⚡ IMC+ Performance")
 st.sidebar.success(f"Conectado como: **{usuario_ativo}**")
 
+# BOTAO LOGOUT QUE LIMPA COOKIES
 if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
     st.session_state.usuario_logado = None
+    cookie_manager.delete("imc_user_logged")
     st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📱 Acesse pelo Celular")
+
+# Cole a URL real do seu app publicado aqui
+url_app = "https://SEU-APP-AQUI.streamlit.app"
+if "SEU-APP-AQUI" not in url_app:
+    import urllib.parse
+    qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={urllib.parse.quote(url_app)}"
+    st.sidebar.image(qr_code_url, caption="Escaneie para abrir no celular")
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
