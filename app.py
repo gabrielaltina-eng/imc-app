@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import hashlib
 
 # 1. CONFIGURAÇÃO VISUAL & TEMA HIGH-TECH
 st.set_page_config(
@@ -16,7 +17,6 @@ st.markdown("""
 <style>
     .stApp { background-color: #0b0f19; }
     
-    /* Cards estilo SaaS/Dashboard */
     div[data-testid="stMetric"] {
         background: linear-gradient(135deg, #161e2e 0%, #111827 100%);
         border: 1px solid #1f2937;
@@ -25,7 +25,6 @@ st.markdown("""
         box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
     
-    /* Header Principal */
     .hero-card {
         background: linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%);
         border: 1px solid #312e81;
@@ -48,7 +47,6 @@ st.markdown("""
         margin-top: 5px;
     }
 
-    /* Botões Stylized */
     div.stButton > button {
         border-radius: 8px;
         font-weight: 600;
@@ -57,8 +55,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# FUNÇÃO PARA CRIPTOGRAFAR SENHA
+def hash_senha(senha):
+    return hashlib.sha256(senha.encode()).hexdigest()
+
 # 2. BANCO DE DADOS ROBUSTO
-DB_NAME = "imc_plus_v5.db"
+DB_NAME = "imc_plus_v6.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
@@ -70,6 +72,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nome TEXT UNIQUE NOT NULL,
+                senha TEXT NOT NULL,
                 idade INTEGER,
                 altura REAL
             )
@@ -131,44 +134,70 @@ def classificar_imc(imc):
     elif 35.0 <= imc < 40.0: return "Obesidade II"
     else: return "Obesidade III"
 
-# 3. BARRA LATERAL - GESTÃO DE USUÁRIO
-st.sidebar.title("⚡ IMC+ Performance")
+# 3. CONTROLE DE SESSÃO & AUTENTICAÇÃO
+if "usuario_logado" not in st.session_state:
+    st.session_state.usuario_logado = None
 
-with get_connection() as conn:
-    usuarios_df = pd.read_sql_query("SELECT nome FROM usuarios", conn)
-    lista_usuarios = usuarios_df['nome'].tolist() if not usuarios_df.empty else []
-
-st.sidebar.markdown("### 👤 Usuário")
-if not lista_usuarios:
-    st.sidebar.warning("Nenhum perfil cadastrado.")
-    novo_u = st.sidebar.text_input("Seu Nome:")
-    idade_u = st.sidebar.number_input("Idade:", 1, 120, 25)
-    alt_u = st.sidebar.number_input("Altura (m):", 0.50, 2.50, 1.75, step=0.01)
-    if st.sidebar.button("Criar Perfil", type="primary"):
-        if novo_u.strip():
-            with get_connection() as conn:
-                conn.cursor().execute("INSERT INTO usuarios (nome, idade, altura) VALUES (?,?,?)", (novo_u.strip(), idade_u, alt_u))
-                conn.commit()
-            st.rerun()
+# TELA DE LOGIN / CADASTRO SE NÃO ESTIVER LOGADO
+if not st.session_state.usuario_logado:
+    st.title("🔒 Acesso Restrito — IMC+")
+    st.caption("Faça login para acessar o painel de saúde e métricas.")
+    
+    tab_login, tab_cadastro = st.tabs(["🔑 Entrar", "📝 Criar Conta"])
+    
+    with tab_login:
+        with st.form("form_login"):
+            usuario_input = st.text_input("Usuário / Nome:")
+            senha_input = st.text_input("Senha:", type="password")
+            btn_entrar = st.form_submit_button("Entrar no Sistema", type="primary", use_container_width=True)
+            
+            if btn_entrar:
+                if usuario_input.strip() and senha_input:
+                    senha_hash = hash_senha(senha_input)
+                    with get_connection() as conn:
+                        res = pd.read_sql_query("SELECT * FROM usuarios WHERE nome = ? AND senha = ?", 
+                                                conn, params=(usuario_input.strip(), senha_hash))
+                    if not res.empty:
+                        st.session_state.usuario_logado = usuario_input.strip()
+                        st.success("Login realizado com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Usuário ou senha incorretos!")
+                else:
+                    st.warning("Preencha todos os campos.")
+                    
+    with tab_cadastro:
+        with st.form("form_cadastro"):
+            novo_u = st.text_input("Nome de Usuário:")
+            nova_s = st.text_input("Defina uma Senha:", type="password")
+            idade_u = st.number_input("Idade:", 1, 120, 25)
+            alt_u = st.number_input("Altura (m):", 0.50, 2.50, 1.75, step=0.01)
+            btn_cadastrar = st.form_submit_button("Criar Conta", type="primary", use_container_width=True)
+            
+            if btn_cadastrar:
+                if novo_u.strip() and nova_s:
+                    try:
+                        senha_hash = hash_senha(nova_s)
+                        with get_connection() as conn:
+                            conn.cursor().execute("INSERT INTO usuarios (nome, senha, idade, altura) VALUES (?,?,?,?)", 
+                                                  (novo_u.strip(), senha_hash, idade_u, alt_u))
+                            conn.commit()
+                        st.success("Conta criada! Faça login na aba 'Entrar'.")
+                    except:
+                        st.error("Este nome de usuário já está em uso.")
+                else:
+                    st.warning("Preencha todos os campos.")
     st.stop()
 
-usuario_ativo = st.sidebar.selectbox("Conectado como:", lista_usuarios)
+# --- USUÁRIO AUTENTICADO ---
+usuario_ativo = st.session_state.usuario_logado
 
-# Botão rápido para adicionar novo usuário
-with st.sidebar.expander("➕ Cadastrar Outra Pessoa"):
-    cad_nome = st.text_input("Nome:")
-    cad_idade = st.number_input("Idade:", 1, 120, 20)
-    cad_altura = st.number_input("Altura (m):", 0.50, 2.50, 1.70, step=0.01, key="alt_cad")
-    if st.button("Salvar Novo Perfil"):
-        if cad_nome.strip():
-            try:
-                with get_connection() as conn:
-                    conn.cursor().execute("INSERT INTO usuarios (nome, idade, altura) VALUES (?,?,?)", (cad_nome.strip(), cad_idade, cad_altura))
-                    conn.commit()
-                st.success("Criado!")
-                st.rerun()
-            except:
-                st.error("Nome já existe!")
+st.sidebar.title("⚡ IMC+ Performance")
+st.sidebar.success(f"Conectado como: **{usuario_ativo}**")
+
+if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
+    st.session_state.usuario_logado = None
+    st.rerun()
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
