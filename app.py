@@ -5,7 +5,7 @@ import plotly.express as px
 from datetime import datetime
 import hashlib
 
-# 1. CONFIGURAÇÃO VISUAL
+# 1. CONFIGURAÇÃO VISUAL & TEMA HIGH-TECH
 st.set_page_config(
     page_title="IMC+ | Performance & Health",
     page_icon="⚡",
@@ -13,26 +13,82 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ESTILO CSS AVANÇADO (DESIGN DASHBOARD PREMIUM)
 st.markdown("""
 <style>
-    .stApp { background-color: #0b0f19; }
+    /* Fundo da Aplicação */
+    .stApp {
+        background-color: #0b0f19;
+    }
+    
+    /* Cartões Métrica / KPI Cards */
     div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #161e2e 0%, #111827 100%);
-        border: 1px solid #1f2937;
-        border-radius: 12px;
-        padding: 18px;
+        background: linear-gradient(135deg, rgba(22, 30, 46, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        transition: transform 0.3s ease, border-color 0.3s ease;
     }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-4px);
+        border-color: #6366f1;
+        box-shadow: 0 12px 30px rgba(99, 102, 241, 0.25);
+    }
+    
+    /* Hero Header */
     .hero-card {
-        background: linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%);
-        border: 1px solid #312e81;
+        background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+        border: 1px solid rgba(99, 102, 241, 0.3);
         border-left: 6px solid #6366f1;
-        padding: 24px;
-        border-radius: 14px;
+        padding: 28px;
+        border-radius: 18px;
         margin-bottom: 25px;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
     }
-    .hero-title { color: #f8fafc; font-size: 26px; font-weight: 800; margin: 0; }
-    .hero-sub { color: #94a3b8; font-size: 14px; margin-top: 5px; }
-    div.stButton > button { border-radius: 8px; font-weight: 600; }
+    .hero-title {
+        color: #f8fafc;
+        font-size: 28px;
+        font-weight: 800;
+        margin: 0;
+        letter-spacing: -0.5px;
+    }
+    .hero-sub {
+        color: #94a3b8;
+        font-size: 15px;
+        margin-top: 6px;
+    }
+
+    /* Botões Estilizados */
+    div.stButton > button {
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%);
+        color: #ffffff !important;
+        font-weight: 700;
+        border: none;
+        border-radius: 10px;
+        padding: 0.6rem 1.2rem;
+        transition: all 0.3s ease-in-out;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    }
+    div.stButton > button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    }
+
+    /* Abas de Formulário */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 8px 16px;
+        background-color: #1e293b;
+        color: #94a3b8;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #6366f1 !important;
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -40,7 +96,7 @@ def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 # 2. BANCO DE DADOS
-DB_NAME = "imc_plus_v8.db"
+DB_NAME = "imc_plus_v9.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
@@ -54,7 +110,8 @@ def init_db():
                 nome TEXT UNIQUE NOT NULL,
                 senha TEXT NOT NULL,
                 idade INTEGER,
-                altura REAL
+                altura REAL,
+                peso_inicial REAL
             )
         """)
         cursor.execute("""
@@ -102,7 +159,7 @@ def init_db():
 
 init_db()
 
-# CÁLCULOS
+# CÁLCULOS BIOMÉTRICOS
 def calcular_imc(peso, altura):
     return peso / (altura ** 2) if altura > 0 else 0
 
@@ -114,65 +171,85 @@ def classificar_imc(imc):
     elif 35.0 <= imc < 40.0: return "Obesidade II"
     else: return "Obesidade III"
 
-# 3. CONTROLE DE SESSÃO
+# 3. CONTROLE DE SESSÃO / TELA DE LOGIN & CADASTRO
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
-# TELA DE LOGIN / CADASTRO
 if not st.session_state.usuario_logado:
-    st.title("🔒 Acesso Restrito — IMC+")
-    st.caption("Faça login para acessar suas métricas de saúde.")
+    st.markdown("""
+        <div style="text-align: center; padding: 40px 0;">
+            <h1 style="color: #6366f1; font-size: 42px; font-weight: 900; margin-bottom: 0;">⚡ IMC+ Analytics</h1>
+            <p style="color: #94a3b8; font-size: 18px;">Seu painel de inteligência em saúde e treino</p>
+        </div>
+    """, unsafe_allow_html=True)
     
-    tab_login, tab_cadastro = st.tabs(["🔑 Entrar", "📝 Criar Conta"])
+    col_centered = st.columns([1, 2, 1])[1]
     
-    with tab_login:
-        with st.form("form_login"):
-            usuario_input = st.text_input("Usuário / Nome:")
-            senha_input = st.text_input("Senha:", type="password")
-            btn_entrar = st.form_submit_button("Entrar no Sistema", type="primary", use_container_width=True)
-            
-            if btn_entrar:
-                nome_limpo = usuario_input.strip()
-                if nome_limpo and senha_input:
-                    senha_hash = hash_senha(senha_input)
-                    with get_connection() as conn:
-                        res = pd.read_sql_query("SELECT * FROM usuarios WHERE LOWER(nome) = LOWER(?) AND senha = ?", 
-                                                conn, params=(nome_limpo, senha_hash))
-                    if not res.empty:
-                        user_real = res['nome'].iloc[0]
-                        st.session_state.usuario_logado = user_real
-                        st.success("Login realizado com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error("Usuário ou senha incorretos!")
-                else:
-                    st.warning("Preencha todos os campos.")
-                    
-    with tab_cadastro:
-        with st.form("form_cadastro"):
-            novo_u = st.text_input("Nome de Usuário:")
-            nova_s = st.text_input("Defina uma Senha:", type="password")
-            idade_u = st.number_input("Idade:", 1, 120, 25)
-            alt_u = st.number_input("Altura (m):", 0.50, 2.50, 1.75, step=0.01)
-            btn_cadastrar = st.form_submit_button("Criar Conta", type="primary", use_container_width=True)
-            
-            if btn_cadastrar:
-                nome_cad = novo_u.strip()
-                if nome_cad and nova_s:
-                    with get_connection() as conn:
-                        ja_existe = pd.read_sql_query("SELECT id FROM usuarios WHERE LOWER(nome) = LOWER(?)", conn, params=(nome_cad,))
-                    
-                    if not ja_existe.empty:
-                        st.error("⚠️ Este nome de usuário já está em uso! Escolha outro nome.")
-                    else:
-                        senha_hash = hash_senha(nova_s)
+    with col_centered:
+        tab_login, tab_cadastro = st.tabs(["🔑 Entrar na Conta", "📝 Criar Nova Conta"])
+        
+        with tab_login:
+            with st.form("form_login"):
+                usuario_input = st.text_input("Usuário / Nome:")
+                senha_input = st.text_input("Senha:", type="password")
+                btn_entrar = st.form_submit_button("Entrar no Dashboard", type="primary", use_container_width=True)
+                
+                if btn_entrar:
+                    nome_limpo = usuario_input.strip()
+                    if nome_limpo and senha_input:
+                        senha_hash = hash_senha(senha_input)
                         with get_connection() as conn:
-                            conn.cursor().execute("INSERT INTO usuarios (nome, senha, idade, altura) VALUES (?,?,?,?)", 
-                                                  (nome_cad, senha_hash, idade_u, alt_u))
-                            conn.commit()
-                        st.success("Conta criada! Vá até a aba 'Entrar' para acessar.")
-                else:
-                    st.warning("Preencha todos os campos.")
+                            res = pd.read_sql_query("SELECT * FROM usuarios WHERE LOWER(nome) = LOWER(?) AND senha = ?", 
+                                                    conn, params=(nome_limpo, senha_hash))
+                        if not res.empty:
+                            user_real = res['nome'].iloc[0]
+                            st.session_state.usuario_logado = user_real
+                            st.success("Login efetuado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Usuário ou senha incorretos!")
+                    else:
+                        st.warning("Preencha todos os campos para entrar.")
+                        
+        with tab_cadastro:
+            with st.form("form_cadastro"):
+                novo_u = st.text_input("Nome de Usuário:")
+                nova_s = st.text_input("Defina uma Senha:", type="password")
+                
+                c_cad1, c_cad2, c_cad3 = st.columns(3)
+                peso_u = c_cad1.number_input("Peso (kg):", 1.0, 300.0, 70.0, step=0.1)
+                alt_u = c_cad2.number_input("Altura (m):", 0.50, 2.50, 1.70, step=0.01)
+                idade_u = c_cad3.number_input("Idade:", 1, 120, 25)
+                
+                btn_cadastrar = st.form_submit_button("Criar Conta e Entrar", type="primary", use_container_width=True)
+                
+                if btn_cadastrar:
+                    nome_cad = novo_u.strip()
+                    if nome_cad and nova_s:
+                        with get_connection() as conn:
+                            ja_existe = pd.read_sql_query("SELECT id FROM usuarios WHERE LOWER(nome) = LOWER(?)", conn, params=(nome_cad,))
+                        
+                        if not ja_existe.empty:
+                            st.error("⚠️ Este nome de usuário já está em uso! Escolha outro nome.")
+                        else:
+                            senha_hash = hash_senha(nova_s)
+                            imc_inicial = calcular_imc(peso_u, alt_u)
+                            diag_inicial = classificar_imc(imc_inicial)
+                            data_agora = datetime.now().strftime('%d/%m/%Y %H:%M')
+                            
+                            with get_connection() as conn:
+                                cur = conn.cursor()
+                                # Salva usuário
+                                cur.execute("INSERT INTO usuarios (nome, senha, idade, altura, peso_inicial) VALUES (?,?,?,?,?)", 
+                                            (nome_cad, senha_hash, idade_u, alt_u, peso_u))
+                                # Registra primeiro histórico de peso/IMC
+                                cur.execute("INSERT INTO historico (nome, data, peso, imc, classificacao) VALUES (?,?,?,?,?)",
+                                            (nome_cad, data_agora, peso_u, imc_inicial, diag_inicial))
+                                conn.commit()
+                                
+                            st.success("Conta criada com sucesso! Vá até a aba 'Entrar na Conta'.")
+                    else:
+                        st.warning("Preencha o nome de usuário e a senha.")
     st.stop()
 
 # --- USUÁRIO AUTENTICADO ---
@@ -199,14 +276,14 @@ if menu == "📊 Dashboard Geral":
     st.markdown(f"""
         <div class="hero-card">
             <div class="hero-title">Painel de Performance: {usuario_ativo}</div>
-            <div class="hero-sub">Visão geral do seu estado físico e evolução biométrica</div>
+            <div class="hero-sub">Visão geral do seu estado físico e evolução biométrica em tempo real</div>
         </div>
     """, unsafe_allow_html=True)
 
     with get_connection() as conn:
         df_h = pd.read_sql_query("SELECT * FROM historico WHERE nome = ? ORDER BY id DESC", conn, params=(usuario_ativo,))
 
-    peso_atual = df_h['peso'].iloc[0] if not df_h.empty else 70.0
+    peso_atual = df_h['peso'].iloc[0] if not df_h.empty else user_data['peso_inicial']
     imc_atual = df_h['imc'].iloc[0] if not df_h.empty else calcular_imc(peso_atual, user_data['altura'])
     
     delta = 0.0
@@ -237,7 +314,7 @@ if menu == "📊 Dashboard Geral":
                         (usuario_ativo, data_agora, p_in, imc_calc, diag))
             cur.execute("UPDATE usuarios SET altura = ? WHERE nome = ?", (a_in, usuario_ativo))
             conn.commit()
-        st.success("Medição registrada com sucesso!")
+        st.success("Medição registrada no banco de dados!")
         st.rerun()
 
 # --- 2. TREINOS & ATIVIDADES ---
@@ -245,7 +322,7 @@ elif menu == "🏋️ Treinos & Atividades":
     st.markdown(f"""
         <div class="hero-card">
             <div class="hero-title">Central de Treinos — {usuario_ativo}</div>
-            <div class="hero-sub">Registre suas atividades diárias e monitore o gasto calórico</div>
+            <div class="hero-sub">Registre suas atividades diárias e monitore seu gasto calórico</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -272,7 +349,7 @@ elif menu == "🏋️ Treinos & Atividades":
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (usuario_ativo, data_hoje, nome_final, atv_cat, atv_int, atv_dur, atv_cal))
                 conn.commit()
-            st.success("Atividade salva no banco de dados!")
+            st.success("Atividade salva no histórico!")
             st.rerun()
 
     st.markdown("---")
@@ -323,7 +400,7 @@ elif menu == "💧 Água & Passos":
             st.rerun()
 
     with col2:
-        st.subheader("WALK Passos Diários")
+        st.subheader("🚶 Passos Diários")
         st.metric("Total Hoje", f"{passos_atual} / 10000 passos")
         st.progress(min(passos_atual / 10000, 1.0))
         
@@ -372,7 +449,8 @@ elif menu == "📈 Histórico Evolutivo":
 
     if not df_hist.empty:
         st.dataframe(df_hist, use_container_width=True)
-        fig = px.line(df_hist, x='Data', y='IMC', title="Evolução do IMC", markers=True)
+        fig = px.area(df_hist, x='Data', y='IMC', title=f"Evolução Temporal do IMC — {usuario_ativo}", markers=True)
+        fig.add_hline(y=24.9, line_dash="dash", line_color="#10b981", annotation_text="Meta Peso Ideal (24.9)")
         fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
     else:
