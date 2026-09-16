@@ -1,436 +1,310 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import datetime
 import plotly.express as px
+from datetime import datetime
 
-# =========================================================
-# CONFIGURAÇÃO DA PÁGINA
-# =========================================================
+# Configuração da página do Streamlit
 st.set_page_config(
-    page_title="IMC+ • Saúde, Exercícios e Hábitos",
-    page_icon="⚖️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="IMC+ | Saúde, Hábitos e Nutrição",
+    page_icon="🩺",
+    layout="wide"
 )
 
-DB = "imc_plus_web.db"
-
-# Estilização CSS customizada para o Tema Escuro
-st.markdown("""
-    <style>
-        .stApp {
-            background-color: #07111F;
-            color: #F4F7FB;
-        }
-        [data-testid="stSidebar"] {
-            background-color: #0A1729;
-        }
-        div[data-testid="metric-container"] {
-            background-color: #10233A;
-            border: 1px solid #20304A;
-            padding: 15px;
-            border-radius: 15px;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# BANCO DE DADOS
-# =========================================================
+# --- BANCO DE DADOS ---
 def conectar():
-    return sqlite3.connect(DB)
+    conn = sqlite3.connect("imc_plus_web.db")
+    return conn
 
-def auto_migrar_tabela(cursor, tabela, colunas_desejadas):
-    cursor.execute(f"PRAGMA table_info({tabela})")
-    colunas_existentes = [col[1] for col in cursor.fetchall()]
-    if not colunas_existentes:
-        defs = [f"{nome} {tipo}" for nome, tipo in colunas_desejadas]
-        cursor.execute(f"CREATE TABLE {tabela} ({', '.join(defs)})")
-    else:
-        for nome, tipo in colunas_desejadas:
-            if nome not in colunas_existentes and "PRIMARY KEY" not in tipo.upper():
-                cursor.execute(f"ALTER TABLE {tabela} ADD COLUMN {nome} {tipo}")
-
-def criar_banco():
+def criar_tabelas():
     conn = conectar()
     cursor = conn.cursor()
     
-    tabelas = {
-        "historico": [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("nome", "TEXT NOT NULL"),
-            ("idade", "INTEGER"),
-            ("peso", "REAL NOT NULL"),
-            ("altura", "REAL NOT NULL"),
-            ("imc", "REAL NOT NULL"),
-            ("classificacao", "TEXT"),
-            ("data", "TEXT NOT NULL")
-        ],
-        "agua": [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("nome", "TEXT NOT NULL"),
-            ("quantidade", "REAL NOT NULL"),
-            ("data", "TEXT NOT NULL")
-        ],
-        "atividades": [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("nome", "TEXT NOT NULL"),
-            ("atividade", "TEXT NOT NULL"),
-            ("categoria", "TEXT"),
-            ("intensidade", "TEXT"),
-            ("minutos", "INTEGER NOT NULL"),
-            ("kcal_gasta", "REAL"),
-            ("data", "TEXT NOT NULL")
-        ],
-        "metas": [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("nome", "TEXT NOT NULL"),
-            ("meta", "TEXT NOT NULL"),
-            ("status", "TEXT DEFAULT 'Pendente'")
-        ],
-        "alimentos": [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("nome", "TEXT UNIQUE"),
-            ("categoria", "TEXT"),
-            ("kcal", "REAL"),
-            ("proteina", "REAL"),
-            ("carboidrato", "REAL"),
-            ("gordura", "REAL"),
-            ("fibra", "REAL")
-        ]
-    }
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL,
+            idade INTEGER,
+            altura REAL,
+            meta_agua INTEGER DEFAULT 2000,
+            meta_passos INTEGER DEFAULT 8000
+        )
+    """)
     
-    for tabela, colunas in tabelas.items():
-        auto_migrar_tabela(cursor, tabela, colunas)
-        
-    alimentos = [
-        ("Arroz branco cozido", "Cereais", 128, 2.5, 28.1, 0.2, 1.6),
-        ("Arroz integral cozido", "Cereais", 124, 2.6, 25.8, 1.0, 2.7),
-        ("Feijão carioca cozido", "Leguminosas", 76, 4.8, 13.6, 0.5, 8.5),
-        ("Feijão preto cozido", "Leguminosas", 77, 4.5, 14.0, 0.5, 8.4),
-        ("Tapioca", "Cereais", 230, 0.2, 57.0, 0.0, 0.0),
-        ("Aveia", "Cereais", 394, 13.9, 66.6, 8.5, 9.1),
-        ("Pão francês", "Cereais", 300, 8.0, 58.6, 3.1, 2.3),
-        ("Pão integral", "Cereais", 250, 9.0, 41.0, 4.0, 6.0),
-        ("Batata cozida", "Tubérculos", 52, 1.2, 11.9, 0.0, 1.3),
-        ("Banana prata", "Frutas", 98, 1.3, 26.0, 0.1, 2.0),
-        ("Maçã", "Frutas", 56, 0.3, 15.2, 0.0, 1.3),
-        ("Ovo cozido", "Ovos", 146, 13.3, 0.6, 9.5, 0.0),
-        ("Frango grelhado", "Carnes", 159, 32.0, 0.0, 2.5, 0.0),
-        ("Peixe grelhado", "Pescados", 130, 26.0, 0.0, 3.0, 0.0),
-        ("Leite integral", "Laticínios", 61, 3.2, 4.8, 3.3, 0.0),
-        ("Iogurte natural", "Laticínios", 61, 3.5, 4.7, 3.3, 0.0),
-        ("Queijo minas", "Laticínios", 264, 17.4, 3.2, 20.0, 0.0),
-        ("Tomate", "Vegetais", 18, 0.9, 3.9, 0.2, 1.2),
-        ("Alface", "Vegetais", 15, 1.4, 2.9, 0.2, 1.8),
-        ("Laranja", "Frutas", 47, 0.9, 11.8, 0.1, 2.4),
-        ("Abacate", "Frutas", 96, 1.2, 6.0, 8.4, 6.3),
-        ("Batata doce cozida", "Tubérculos", 77, 0.6, 18.4, 0.1, 2.2),
-        ("Carne bovina grelhada", "Carnes", 250, 26.0, 0.0, 16.0, 0.0),
-        ("Brócolis cozido", "Vegetais", 25, 2.1, 4.4, 0.5, 3.4),
-        ("Cenoura cozida", "Vegetais", 30, 0.8, 6.7, 0.2, 2.6),
-        ("Morango", "Frutas", 30, 0.9, 6.8, 0.3, 1.7),
-    ]
-    cursor.executemany("""
-        INSERT OR IGNORE INTO alimentos 
-        (nome, categoria, kcal, proteina, carboidrato, gordura, fibra) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, alimentos)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            data TEXT NOT NULL,
+            peso REAL NOT NULL,
+            imc REAL NOT NULL,
+            classificacao TEXT NOT NULL
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS registros_diarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            data TEXT NOT NULL,
+            agua INTEGER DEFAULT 0,
+            passos INTEGER DEFAULT 0,
+            UNIQUE(nome, data)
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS habitos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            habito TEXT NOT NULL,
+            status INTEGER DEFAULT 0,
+            UNIQUE(nome, habito)
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
-criar_banco()
+criar_tabelas()
 
-# =========================================================
-# LÓGICA DE IMC
-# =========================================================
+# --- FUNÇÕES DE LÓGICA DO IMC ---
 def calcular_imc(peso, altura):
-    if peso <= 0 or altura <= 0:
+    if altura <= 0:
         return 0
-    if altura > 3:
-        altura /= 100
-    return peso / (altura * altura)
+    return peso / (altura ** 2)
 
-def classificacao_imc(imc, idade):
-    if imc <= 0:
-        return "Dados inválidos", "info", "Digite peso e altura válidos."
-    if idade < 18:
-        return "Avaliação por idade", "info", "Para menores de 18 anos, o IMC deve ser interpretado por curvas específicas de idade e sexo por um profissional."
+def classificar_imc(imc):
     if imc < 18.5:
-        return "Abaixo do peso", "warning", "Vale conversar com um profissional se isso for uma preocupação."
-    elif imc < 25:
-        return "Peso normal", "success", "Mantenha hábitos equilibrados e uma rotina ativa."
-    elif imc < 30:
-        return "Sobrepeso", "warning", "Priorize hábitos saudáveis e constância."
+        return "Abaixo do peso"
+    elif 18.5 <= imc < 25.0:
+        return "Peso normal"
+    elif 25.0 <= imc < 30.0:
+        return "Sobrepeso"
+    elif 30.0 <= imc < 35.0:
+        return "Obesidade Grau 1"
+    elif 35.0 <= imc < 40.0:
+        return "Obesidade Grau 2"
     else:
-        return "Obesidade", "error", "Busque acompanhamento de um profissional de saúde."
+        return "Obesidade Grau 3 (Mórbida)"
 
-# =========================================================
-# INTERFACE DO USUÁRIO & PERFIL
-# =========================================================
-st.sidebar.title("IMC+ | Saúde e Hábitos")
+# --- TELA LATERAL (SIDEBAR / NAVEGAÇÃO) ---
+st.sidebar.title("🩺 IMC+ Web")
 
-if 'usuario' not in st.session_state:
-    st.session_state.usuario = {
-        'nome': 'Usuário',
-        'idade': 25,
-        'altura': 1.75,
-        'peso': 70.0,
-        'objetivo': 'Melhorar hábitos'
-    }
+# Gerenciamento do Perfil de Usuário
+conn = conectar()
+usuarios_db = pd.read_sql_query("SELECT nome FROM usuarios", conn)['nome'].tolist()
+conn.close()
 
-with st.sidebar.expander("👤 Meu Perfil / Dados", expanded=False):
-    nome = st.text_input("Nome", value=st.session_state.usuario['nome'])
-    idade = st.number_input("Idade", min_value=1, max_value=120, value=int(st.session_state.usuario['idade']))
-    altura = st.number_input("Altura (m)", min_value=0.5, max_value=2.5, value=float(st.session_state.usuario['altura']), step=0.01)
-    peso = st.number_input("Peso (kg)", min_value=1.0, max_value=300.0, value=float(st.session_state.usuario['peso']), step=0.5)
-    objetivo = st.selectbox("Objetivo Principal", ["Melhorar hábitos", "Manter saúde", "Praticar atividade física", "Conhecer alimentação"], index=0)
+if not usuarios_db:
+    usuario_atual = "Convidado"
+    st.sidebar.info("Crie um perfil na aba 'Meu Perfil' para salvar seus dados.")
+else:
+    usuario_atual = st.sidebar.selectbox("Selecione seu Perfil:", usuarios_db)
 
-    if st.button("Atualizar Perfil", type="primary"):
-        st.session_state.usuario = {
-            'nome': nome,
-            'idade': idade,
-            'altura': altura,
-            'peso': peso,
-            'objetivo': objetivo
-        }
-        st.success("Perfil atualizado com sucesso!")
-
-# Navegação Principal
 menu = st.sidebar.radio(
     "Navegação",
     [
-        "🏠 Dashboard", 
-        "⚖️ Meu IMC", 
-        "💧 Hidratação / Água", 
-        "🏃 Registro de Atividades", 
-        "🎯 Metas de Hábitos", 
-        "🍎 Tabela Nutricional", 
-        "💡 Dicas & Treinos", 
+        "📊 Meu IMC",
+        "💧 Água e Passos",
+        "✅ Metas e Hábitos",
+        "🥗 Tabela Nutricional",
+        "💡 Dicas de Saúde",
+        "🏋️ Treinos Semanais",
+        "👤 Meu Perfil",
         "📈 Histórico Geral"
     ]
 )
 
-user = st.session_state.usuario
-imc_atual = calcular_imc(user['peso'], user['altura'])
-status, tipo_alerta, explicacao = classificacao_imc(imc_atual, user['idade'])
-
-# =========================================================
-# PÁGINAS DO SITE
-# =========================================================
-
-# 1. DASHBOARD
-if menu == "🏠 Dashboard":
-    st.title(f"Olá, {user['nome']} 👋")
-    st.caption("Aqui está o resumo da sua saúde e dos seus hábitos.")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("IMC Atual", f"{imc_atual:.1f}")
-    col2.metric("Peso", f"{user['peso']:.1f} kg")
-    col3.metric("Altura", f"{user['altura']:.2f} m")
-    col4.metric("Objetivo", user['objetivo'])
-
-    st.markdown("---")
-    
-    # Status e Orientações
-    if tipo_alerta == "success":
-        st.success(f"**Status:** {status} - {explicacao}")
-    elif tipo_alerta == "warning":
-        st.warning(f"**Status:** {status} - {explicacao}")
-    elif tipo_alerta == "error":
-        st.error(f"**Status:** {status} - {explicacao}")
-    else:
-        st.info(f"**Status:** {status} - {explicacao}")
-
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.subheader("💧 Hidratação do Dia")
-        conn = conectar()
-        hoje = datetime.now().strftime("%d/%m/%Y")
-        df_agua = pd.read_sql_query("SELECT SUM(quantidade) as total FROM agua WHERE LOWER(nome) = LOWER(?) AND data LIKE ?", conn, params=(user['nome'], f"{hoje}%"))
-        conn.close()
-        
-        agua_hoje = df_agua['total'].iloc[0] if not df_agua.empty and df_agua['total'].iloc[0] is not None else 0
-        meta_agua = user['peso'] * 35
-        progresso = min(agua_hoje / meta_agua, 1.0) if meta_agua > 0 else 0
-        
-        st.progress(progresso)
-        st.write(f"**{agua_hoje:.0f} ml** ingeridos de uma meta recomendada de **{meta_agua:.0f} ml**.")
-
-    with c2:
-        st.subheader("🎯 Metas Pendentes")
-        conn = conectar()
-        df_metas = pd.read_sql_query("SELECT meta, status FROM metas WHERE LOWER(nome) = LOWER(?) ORDER BY id DESC LIMIT 3", conn, params=(user['nome'],))
-        conn.close()
-        if not df_metas.empty:
-            for _, row in df_metas.iterrows():
-                st.markdown(f"- **{row['meta']}** `({row['status']})`")
-        else:
-            st.info("Nenhuma meta salva no momento.")
-
-# 2. MEU IMC
-elif menu == "⚖️ Meu IMC":
-    st.title("⚖️ Avaliação de IMC")
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric("Resultado do IMC", f"{imc_atual:.2f}")
-        st.write(f"**Classificação:** {status}")
-        
-        if st.button("💾 Salvar IMC no Histórico"):
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO historico (nome, idade, peso, altura, imc, classificacao, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user['nome'], user['idade'], user['peso'], user['altura'], imc_atual, status, datetime.now().strftime("%d/%m/%Y %H:%M"))
-            )
-            conn.commit()
-            conn.close()
-            st.success("Cálculo de IMC registrado com sucesso!")
-            
-    with col2:
-        st.subheader("💡 Recomendações de Saúde")
-        st.write("- 🥗 **Alimentação:** Priorize pratos coloridos, vegetais, leguminosas e boas fontes de proteína.")
-        st.write("- 💧 **Água:** Beba água regularly ao longo do dia.")
-        st.write("- 🏃 **Movimento:** Faça caminhadas ou exercícios regulares adequados ao seu ritmo.")
-        st.write("- 😴 **Sono:** Mantenha uma rotina regular de descanso para auxílio metabólico.")
-
-# 3. HIDRATAÇÃO
-elif menu == "💧 Hidratação / Água":
-    st.title("💧 Registro de Hidratação")
-    
-    meta_agua = user['peso'] * 35
-    st.info(f"Sua meta diária estimada de água é **{meta_agua:.0f} ml** (35ml por kg).")
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        qtd = st.number_input("Quantidade (ml)", min_value=50, max_value=2000, value=250, step=50)
-        if st.button("➕ Adicionar Água"):
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO agua (nome, quantidade, data) VALUES (?, ?, ?)", (user['nome'], qtd, datetime.now().strftime("%d/%m/%Y %H:%M")))
-            conn.commit()
-            conn.close()
-            st.success(f"{qtd}ml adicionados com sucesso!")
-            
-    with col2:
-        st.subheader("Registros Recentes")
-        conn = conectar()
-        df_agua_rec = pd.read_sql_query("SELECT quantidade as 'Quantidade (ml)', data as 'Data/Hora' FROM agua WHERE LOWER(nome) = LOWER(?) ORDER BY id DESC LIMIT 5", conn, params=(user['nome'],))
-        conn.close()
-        st.dataframe(df_agua_rec, use_container_width=True)
-
-# 4. REGISTRO DE ATIVIDADES
-elif menu == "🏃 Registro de Atividades":
-    st.title("🏃 Registro de Atividades Físicas")
-    
-    with st.form("form_atividade"):
-        atividade = st.text_input("Exercício / Atividade", placeholder="Ex: Caminhada, Corrida, Musculação")
-        categoria = st.selectbox("Categoria", ["Cardio", "Musculação", "Esporte", "Mobilidade/Flexibilidade"])
-        intensidade = st.select_slider("Intensidade", options=["Leve", "Moderada", "Intensa"])
-        minutos = st.number_input("Duração (Minutos)", min_value=5, max_value=300, value=30)
-        kcal = st.number_input("Calorias Gastas Aprox. (kcal)", min_value=0, max_value=2000, value=150)
-        
-        submitted = st.form_submit_button("Salvar Atividade")
-        if submitted and atividade:
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO atividades (nome, atividade, categoria, intensidade, minutos, kcal_gasta, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user['nome'], atividade, categoria, intensidade, minutos, kcal, datetime.now().strftime("%d/%m/%Y %H:%M"))
-            )
-            conn.commit()
-            conn.close()
-            st.success(f"Atividade '{atividade}' salva com sucesso!")
-
-# 5. METAS DE HÁBITOS
-elif menu == "🎯 Metas de Hábitos":
-    st.title("🎯 Minhas Metas")
-    
-    nova_meta = st.text_input("Cadastrar Nova Meta", placeholder="Ex: Dormir 8 horas por noite")
-    if st.button("Adicionar Meta"):
-        if nova_meta.strip():
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO metas (nome, meta) VALUES (?, ?)", (user['nome'], nova_meta))
-            conn.commit()
-            conn.close()
-            st.success("Meta cadastrada!")
-            st.rerun()
-
-    st.markdown("---")
-    st.subheader("Suas Metas Atuais")
+# --- 1. MEU IMC ---
+if menu == "📊 Meu IMC":
+    st.title("📊 Calculadora de IMC")
     
     conn = conectar()
-    df_metas = pd.read_sql_query("SELECT id, meta, status FROM metas WHERE LOWER(nome) = LOWER(?) ORDER BY id DESC", conn, params=(user['nome'],))
+    user_info = pd.read_sql_query("SELECT * FROM usuarios WHERE nome = ?", conn, params=(usuario_atual,))
     conn.close()
     
-    if not df_metas.empty:
-        for index, row in df_metas.iterrows():
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.write(f"🎯 **{row['meta']}**")
-            c2.write(f"Status: `{row['status']}`")
-            if c3.button("Concluir", key=f"m_{row['id']}"):
-                conn = conectar()
-                cursor = conn.cursor()
-                cursor.execute("UPDATE metas SET status = 'Concluída' WHERE id = ?", (row['id'],))
+    altura_padrao = float(user_info['altura'].iloc[0]) if not user_info.empty else 1.70
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        peso = st.number_input("Digite seu peso (kg):", min_value=1.0, max_value=300.0, value=70.0, step=0.1)
+    with col2:
+        altura = st.number_input("Digite sua altura (m):", min_value=0.5, max_value=2.5, value=altura_padrao, step=0.01)
+        
+    if st.button("Calcular e Salvar Registro", type="primary"):
+        imc = calcular_imc(peso, altura)
+        classificacao = classificar_imc(imc)
+        data_hoje = datetime.today().strftime('%Y-%m-%d %H:%M')
+        
+        st.subheader(f"Seu IMC é **{imc:.2f}**")
+        st.info(f"Classificação: **{classificacao}**")
+        
+        if usuario_atual != "Convidado":
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO historico (nome, data, peso, imc, classificacao)
+                VALUES (?, ?, ?, ?, ?)
+            """, (usuario_atual, data_hoje, peso, imc, classificacao))
+            conn.commit()
+            conn.close()
+            st.success("Registro salvo no seu histórico!")
+
+# --- 2. ÁGUA E PASSOS ---
+elif menu == "💧 Água e Passos":
+    st.title("💧 Rastreador Diário de Água e Atividades")
+    data_hoje = datetime.today().strftime('%Y-%m-%d')
+    
+    conn = conectar()
+    user_info = pd.read_sql_query("SELECT meta_agua, meta_passos FROM usuarios WHERE nome = ?", conn, params=(usuario_atual,))
+    reg_info = pd.read_sql_query("SELECT agua, passos FROM registros_diarios WHERE nome = ? AND data = ?", conn, params=(usuario_atual, data_hoje))
+    conn.close()
+    
+    meta_agua = int(user_info['meta_agua'].iloc[0]) if not user_info.empty else 2000
+    meta_passos = int(user_info['meta_passos'].iloc[0]) if not user_info.empty else 8000
+    
+    agua_atual = int(reg_info['agua'].iloc[0]) if not reg_info.empty else 0
+    passos_atuais = int(reg_info['passos'].iloc[0]) if not reg_info.empty else 0
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("💧 Consumo de Água")
+        st.write(f"**Progresso Atual:** {agua_atual} / {meta_agua} ml")
+        st.progress(min(agua_atual / meta_agua, 1.0))
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("+ 250ml Água"):
+                agua_atual += 250
+        with col_b:
+            if st.button("+ 500ml Água"):
+                agua_atual += 500
+                
+    with col2:
+        st.subheader("🚶 Passos Diários")
+        st.write(f"**Progresso Atual:** {passos_atuais} / {meta_passos} passos")
+        st.progress(min(passos_atuais / meta_passos, 1.0))
+        
+        novos_passos = st.number_input("Adicionar passos:", min_value=0, step=500)
+        if st.button("Registrar Passos"):
+            passos_atuais += novos_passos
+            
+    # Atualizar no banco de dados
+    if usuario_atual != "Convidado":
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO registros_diarios (nome, data, agua, passos)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(nome, data) DO UPDATE SET agua=?, passos=?
+        """, (usuario_atual, data_hoje, agua_atual, passos_atuais, agua_atual, passos_atuais))
+        conn.commit()
+        conn.close()
+
+# --- 3. METAS E HÁBITOS ---
+elif menu == "✅ Metas e Hábitos":
+    st.title("✅ Meus Hábitos Saudáveis")
+    
+    novo_habito = st.text_input("Adicionar novo hábito:")
+    if st.button("Adicionar Hábito"):
+        if novo_habito and usuario_atual != "Convidado":
+            conn = conectar()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("INSERT INTO habitos (nome, habito, status) VALUES (?, ?, 0)", (usuario_atual, novo_habito))
                 conn.commit()
-                conn.close()
-                st.rerun()
-    else:
-        st.write("Nenhuma meta cadastrada ainda.")
+                st.success(f"Hábito '{novo_habito}' adicionado!")
+            except:
+                st.warning("Este hábito já existe.")
+            conn.close()
+            
+    st.divider()
+    
+    if usuario_atual != "Convidado":
+        conn = conectar()
+        df_habitos = pd.read_sql_query("SELECT habito, status FROM habitos WHERE nome = ?", conn, params=(usuario_atual,))
+        conn.close()
+        
+        if not df_habitos.empty:
+            for idx, row in df_habitos.iterrows():
+                checked = st.checkbox(row['habito'], value=bool(row['status']), key=f"hab_{idx}")
+                if checked != bool(row['status']):
+                    conn = conectar()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE habitos SET status = ? WHERE nome = ? AND habito = ?", (int(checked), usuario_atual, row['habito']))
+                    conn.commit()
+                    conn.close()
 
-# 6. TABELA NUTRICIONAL
-elif menu == "🍎 Tabela Nutricional":
-    st.title("🍎 Tabela de Alimentos")
-    st.caption("Consulte a tabela de composição nutricional dos alimentos (por porção de 100g).")
+# --- 4. TABELA NUTRICIONAL ---
+elif menu == "🥗 Tabela Nutricional":
+    st.title("🥗 Tabela de Alimentos")
     
-    conn = conectar()
-    df_alimentos = pd.read_sql_query("SELECT nome as Alimento, categoria as Categoria, kcal as 'Calorias (kcal)', proteina as 'Proteína (g)', carboidrato as 'Carboidratos (g)', gordura as 'Gorduras (g)', fibra as 'Fibras (g)' FROM alimentos", conn)
-    conn.close()
+    dados_alimentos = {
+        "Alimento": ["Arroz Branco Cozido (100g)", "Feijão Preto Cozido (100g)", "Peito de Frango Grelhado (100g)", "Ovo Cozido (1 unidade)", "Banana Prata (1 unidade)", "Maçã (1 unidade)", "Aveia em Flocos (30g)"],
+        "Calorias (kcal)": [130, 77, 165, 78, 98, 72, 117],
+        "Carboidratos (g)": [28.0, 14.0, 0.0, 0.6, 23.0, 19.0, 17.0],
+        "Proteínas (g)": [2.5, 4.5, 31.0, 6.3, 1.3, 0.3, 4.3],
+        "Gorduras (g)": [0.2, 0.5, 3.6, 5.3, 0.1, 0.2, 2.3]
+    }
     
-    busca = st.text_input("🔍 Buscar Alimento por nome")
+    df_alimentos = pd.DataFrame(dados_alimentos)
+    
+    busca = st.text_input("🔍 Buscar alimento:")
     if busca:
-        df_alimentos = df_alimentos[df_alimentos['Alimento'].str.contains(busca, case=False, na=False)]
+        df_alimentos = df_alimentos[df_alimentos['Alimento'].str.contains(busca, case=False)]
         
     st.dataframe(df_alimentos, use_container_width=True)
 
-# 7. DICAS & TREINOS
-elif menu == "💡 Dicas & Treinos":
-    st.title("💡 Central de Dicas & Sugestões de Treinos")
+# --- 5. DICAS DE SAÚDE ---
+elif menu == "💡 Dicas de Saúde":
+    st.title("💡 Dicas Diárias de Saúde e Bem-Estar")
     
-    tab1, tab2 = st.tabs(["💡 Dicas de Saúde", "🏋️ Sugestões de Treinos"])
-    
-    with tab1:
-        st.subheader("Hábitos Importantes")
-        st.write("1. **Hidratação:** Consuma líquidos continuamente ao longo do dia.")
-        st.write("2. **Refeições Equilibradas:** Combine vegetais, cereais integrais e proteínas em suas refeições.")
-        st.write("3. **Sono Regulado:** Mantenha horários constantes para dormir e acordar.")
-        st.write("4. **Consistência:** Estabeleça metas realistas e graduais para manter os resultados.")
-        
-    with tab2:
-        st.subheader("Sugestões de Treino")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 🔵 Treino Full Body (Corpo Inteiro)")
-            st.write("- Agachamento Livre: 3 x 12")
-            st.write("- Flexões de Braço (ou adaptadas): 3 x 10")
-            st.write("- Remada Curvada: 3 x 12")
-            st.write("- Prancha Abdominal: 3x 30 seg")
-        with col2:
-            st.markdown("### 🟢 Treino Aeróbico e Mobilidade")
-            st.write("- Caminhada/Corrida Leve: 30 minutos")
-            st.write("- Alongamento Geral de Quadril e Ombros")
-            st.write("- Exercícios de Equilíbrio")
+    st.markdown("""
+    * **Hidratação:** Beba água regularmente mesmo sem sentir sede extrema.
+    * **Sono:** Priorize entre 7 e 8 horas de sono de qualidade por noite para regulação hormonal.
+    * **Alimentação:** Prefira alimentos in natura e reduza o consumo de ultraprocessados.
+    * **Movimento:** Evite ficar sentado por mais de 2 horas seguidas ao longo do dia.
+    """)
 
-# 8. HISTÓRICO GERAL
+# --- 6. TREINOS SEMANAIS ---
+elif menu == "🏋️ Treinos Semanais":
+    st.title("🏋️ Sugestão de Treino Semanal")
+    
+    st.markdown("### 🟢 Treino Aeróbico e Mobilidade")
+    st.write("- Caminhada/Corrida Leve: 30 minutos")
+    st.write("- Alongamento Geral de Quadril e Ombros")
+    st.write("- Exercícios de Equilíbrio")
+
+# --- 7. MEU PERFIL ---
+elif menu == "👤 Meu Perfil":
+    st.title("👤 Gerenciar Perfil")
+    
+    nome_perfil = st.text_input("Seu Nome:")
+    idade_perfil = st.number_input("Sua Idade:", min_value=1, max_value=120, value=25)
+    altura_perfil = st.number_input("Sua Altura (m):", min_value=0.5, max_value=2.5, value=1.70, step=0.01)
+    meta_agua_p = st.number_input("Meta de Água (ml):", min_value=500, max_value=10000, value=2000, step=250)
+    meta_passos_p = st.number_input("Meta de Passos Diários:", min_value=1000, max_value=50000, value=8000, step=500)
+    
+    if st.button("Salvar / Criar Perfil", type="primary"):
+        if nome_perfil:
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO usuarios (nome, idade, altura, meta_agua, meta_passos)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(nome) DO UPDATE SET idade=?, altura=?, meta_agua=?, meta_passos=?
+            """, (nome_perfil, idade_perfil, altura_perfil, meta_agua_p, meta_passos_p, idade_perfil, altura_perfil, meta_agua_p, meta_passos_p))
+            conn.commit()
+            conn.close()
+            st.success("Perfil salvo com sucesso! Atualize a página para usá-lo.")
+
+# --- 8. HISTÓRICO GERAL ---
 elif menu == "📈 Histórico Geral":
     st.title("📈 Seu Histórico Geral")
     
     conn = conectar()
-    df_hist = pd.read_sql_query("SELECT data as Data, peso as 'Peso (kg)', imc as IMC, classificacao as Classificação FROM historico WHERE LOWER(nome) = LOWER(?) ORDER BY id ASC", conn, params=(user['nome'],))
+    df_hist = pd.read_sql_query("SELECT data as Data, peso as 'Peso (kg)', imc as IMC, classificacao as Classificação FROM historico WHERE LOWER(nome) = LOWER(?) ORDER BY id", conn, params=(usuario_atual,))
     conn.close()
     
     if not df_hist.empty:
@@ -440,6 +314,4 @@ elif menu == "📈 Histórico Geral":
         fig = px.line(df_hist, x='Data', y='IMC', title='Evolução do seu IMC ao longo do tempo', markers=True)
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Ainda não existem registros de IMC no histórico. Vá até a aba 'Meu IMC' e salve seu primeiro registro!")streamlit
-pandas
-plotly
+        st.info("Ainda não existem registros de IMC no histórico. Vá até a aba 'Meu IMC' e salve seu primeiro registro!")
